@@ -1,0 +1,252 @@
+#!/bin/bash
+
+# Usage:
+#	./restore -id  name dest_dir [time]
+#	./restore -sha sha  dest_dir
+
+here=${BASH_SOURCE%/*}
+re_no='^[0-9]*$'
+
+set -o pipefail
+
+main() {
+	case $1 in
+	-id)
+		local name=$2 dest=$3 time=$4 sha=
+
+		[[ $name && $dest ]] \
+			|| exit 1
+
+		assert_dir "$dest"
+
+		read -r sha < <( find_object_by_id "$name" "$time" )
+		[[ $sha ]] \
+			|| exit 1
+
+		restore_object "$sha" "$dest"
+		;;
+	-sha)
+		local sha=$2 dest=$3
+
+		[[ $sha && $dest ]] \
+			|| exit 1
+
+		assert_dir "$dest"
+
+		restore_object "$sha" "$dest"
+		;;
+	*)
+		exit 1
+		;;
+	esac
+}
+
+assert_dir() {
+	[[ -d $1 ]] || mkdir -p "$1" || exit 1
+}
+
+find_object_by_id() {
+	local id=$1 time=$2
+
+	if [[ $time ]]
+	then
+		time=$(TZ=UTC date -d "$time" +%s)
+		[[ $time ]] \
+			|| exit 1
+
+		local t sha
+		while read -r t sha
+		do
+			[[ $t && $sha && $t =~ $re_no ]] \
+				|| exit 1
+			(( $t > 0 )) \
+				|| exit 1
+
+			# the input is sorted in descending time order
+			(( $t <= $time )) && {
+				printf '%s\n' "$sha"
+				return
+			}
+		done < <( $here/stcas id-history "$id" )
+		exit 1
+	else
+		$here/stcas id-history "$id" | awk '{print $2; exit}'
+	fi
+}
+
+abort() {
+	printf 'ERROR: %s\n' "$@" >&2
+	exit 1
+}
+
+warn() {
+	printf 'WARNING: %s\n' "$@" >&2
+}
+
+restore_object() {
+	local sha=$1 dir=$2 attr type
+
+	$here/stcas read object "$sha" \
+	| {
+		read -r attr type
+
+		[[ $attr == "type:" ]] \
+			|| abort "Invalid type attribute '$attr $type' for object '$sha'"
+
+		case $type in
+			link) restore_link "$sha" "$dir" ;;
+			data) restore_file "$sha" "$dir" ;;
+			tree) restore_dir  "$sha" "$dir" ;;
+			*)    abort "Object '$sha' has an unknown type: $type" ;;
+		esac
+	}
+
+	(( $? == 0 )) \
+		|| exit 1
+}
+
+restore_link() {
+	local sha=$1 dir=$2
+	local attr value target name owner group
+
+	while read -r attr value
+	do
+		case $attr in
+			target:) target=$( base64 -d <<<"$value" ) ;;
+			*)       read_path_attributes              ;;
+		esac
+	done
+
+	[[ $target && $name && $owner && $group ]] \
+		|| exit 1
+
+	[[ ! -e "$dir/$name" ]] \
+		|| abort "Already present '$dir/$name'"
+
+	ln -s "$target"     "$dir/$name" || exit 1
+	chown $owner:$group "$dir/$name" || exit 1
+}
+
+read_path_attributes() {
+	local o_name g_name new_name
+
+	case $attr in
+		name:)
+			name=$( base64 -d <<<"$value" )
+
+			[[ $name != "." && $name != ".." && $name != */* ]] \
+				|| abort "Invalid name '$name' for object '$sha'"
+			;;
+		owner:)
+			read -r owner o_name <<<"$value"
+
+			[[ $owner && $owner =~ $re_no && $o_name ]] \
+				|| abort "Invalid owner '$value' for object '$sha'"
+
+			IFS=: read -r new_name _ < <(getent passwd $owner)
+			[[ "$new_name" != "$o_name" ]] && {
+				warn "Original owner '$owner $o_name' changed to '$EUID'"
+				owner=$EUID
+			}
+			;;
+		group:)
+			read -r group g_name <<<"$value"
+
+			[[ $group && $group =~ $re_no && $g_name ]] \
+				|| abort "Invalid owner '$value' for object '$sha'"
+
+			IFS=: read -r new_name _ < <(getent group $group)
+			[[ "$new_name" != "$g_name" ]] && {
+				warn "Original group '$group $g_name' changed to '$(id -g)'"
+				group=$(id -g)
+			}
+			;;
+		size:)
+			size=$value
+			[[ $size && $size =~ $re_no ]] \
+				|| abort "Invalid size '$size' for object '$sha'"
+			;;
+		mode:)
+			mode=$value
+			[[ $mode && $mode =~ $re_no ]] \
+				|| abort "Invalid mode '$mode' for object '$sha'"
+			;;
+		mtime:)
+			mtime=$value
+			[[ $mtime && $mtime =~ $re_no ]] \
+				|| abort "Invalid mtime '$mtime' for object '$sha'"
+			;;
+		*)
+			abort "Unknown attribute '$attr $value' for object '$sha'"
+			;;
+	esac
+}
+
+restore_file() {
+	local sha=$1 dir=$2
+	local p parts=()
+	local attr value name size owner group mode mtime
+
+	while read -r attr value
+	do
+		case $attr in
+			btime:)                       ;;
+			part:)   parts+=( "$value" )  ;;
+			*)       read_path_attributes ;;
+		esac
+	done
+
+	[[ $name && $size && $owner && $group && $mode && $mtime ]] \
+		|| exit 1
+
+	[[ ! -e "$dir/$name" ]] \
+		|| abort "Already present '$dir/$name'"
+
+	for p in "${parts[@]}"
+	do
+		$here/stcas read blob "$p" || exit 1
+	done \
+	> "$dir/$name"
+
+	(( $? == 0 )) \
+		|| exit 1
+
+	(( $size == $(stat -c %s                "$dir/$name") )) || exit 1
+	chown $owner:$group                     "$dir/$name"     || exit 1
+	chmod $mode                             "$dir/$name"     || exit 1
+	touch -m -d "$(TZ=UTC date -d @$mtime)" "$dir/$name"     || exit 1
+}
+
+restore_dir() {
+	local sha=$1 dir=$2
+	local o objects=()
+	local attr value name owner group mode mtime
+
+	while read -r attr value
+	do
+		case $attr in
+			btime:)                        ;;
+			object:) objects+=( "$value" ) ;;
+			*)       read_path_attributes  ;;
+		esac
+	done
+
+	[[ $name && $owner && $group && $mode && $mtime ]] \
+		|| exit 1
+
+	[[ ! -e "$dir/$name" ]] \
+		|| abort "Already present '$dir/$name'"
+
+	mkdir                                   "$dir/$name" || exit 1
+	chown $owner:$group                     "$dir/$name" || exit 1
+	chmod $mode                             "$dir/$name" || exit 1
+	touch -m -d "$(TZ=UTC date -d @$mtime)" "$dir/$name" || exit 1
+
+	for o in "${objects[@]}"
+	do
+		restore_object "$o" "$dir/$name" || exit 1
+	done
+}
+
+main "$@"
+

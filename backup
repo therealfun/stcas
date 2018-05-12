@@ -1,0 +1,175 @@
+#!/bin/bash
+
+# Usage:
+#	./backup -id string [-tag string]... [dir|file]...
+
+here=${BASH_SOURCE%/*}
+block=4096
+maxsize=$(( 12 * 1024 * 1024 ))
+
+set -o pipefail
+
+main() {
+	tags=()
+	local id=
+	local paths=()
+
+	while (( $# > 1 ))
+	do
+		case $1 in
+			-id)      id=$2      ; shift 2 ;;
+			-tag)  tags+=( "$2" ); shift 2 ;; 
+			*)    paths+=( "$1" ); shift 1 ;;
+		esac
+	done
+
+	(( $# )) && paths+=( $1 )
+
+	[[ $id           ]] || exit 1
+	(( ${#paths[@]} > 0 )) || exit 1
+
+	local sha
+
+	if (( ${#paths[@]} > 1 ))
+	then
+		sha=$( backup_dir "" "${paths[@]}" )
+	else
+		sha=$( backup_object "${paths[0]}" )
+	fi
+
+	[[ $sha ]] || exit 1
+
+	add_id "$sha" "$id"
+}
+
+backup_dir() {
+	local path=$1
+
+	local sha=$(
+		{
+			echo 'type: tree'
+
+			[[ $path ]] && print_path_properties "$path"
+
+			for p in "${@:2}"
+			do
+				backup_object "$p"
+			done \
+			| sed -e 's/^/object: /'
+		} \
+		| $here/stcas write object
+	)
+
+	[[ $sha ]] || exit 1
+
+	add_tags      "$sha"
+	printf '%s\n' "$sha"
+}
+
+backup_object() {
+	local path=$1
+
+	shopt -s nullglob dotglob
+
+	  if [[ -L $path ]]; then backup_link "$path"
+	elif [[ -f $path ]]; then backup_file "$path"
+	elif [[ -d $path ]]; then backup_dir  "$path" "$path"/*
+	else
+		echo "WARNING: ignoring '$path'" >&2
+	fi
+}
+
+backup_link() {
+	local path=$1
+
+	local sha=$(
+		{
+			echo "type: link"
+			echo "target: $(readlink -n "$path" | base64)"
+
+			print_path_properties "$path"
+		} \
+		| $here/stcas write object
+	)
+
+	[[ $sha ]] || exit 1
+
+	add_tags      "$sha"
+	printf '%s\n' "$sha"
+}
+
+backup_file() {
+	local path=$1
+
+	if (( $(stat -c %s "$path") > $maxsize )); then
+		echo "WARNING: ignore big file '$path'" >&3
+		return
+	fi
+
+	local sha=$(
+		{
+			echo "type: data"
+
+			print_path_properties "$path"
+
+			split -b $block --filter="$here/stcas write blob" < "$path" \
+			| sed -e 's/^/part: /'
+
+			(( $? == 0 )) || exit 1
+		} \
+		| $here/stcas write object
+	)
+
+	[[ $sha ]] || exit 1
+
+	add_tags      "$sha"
+	printf '%s\n' "$sha"
+}
+
+print_path_properties() {
+	local path=$1
+
+	local name=${path##*/}
+
+	echo "name: $(base64 <<<"$name")"
+
+	if   [[ -L "$path" ]]
+	then
+		stat --printf='owner: %u %U\ngroup: %g %G\n' "$path"
+	elif [[ -d "$path" ]]
+	then
+		TZ=UTC stat --printf='mode: %a\nmtime: %Y\nbtime: %W\nowner: %u %U\ngroup: %g %G\n' "$path"
+	else
+		TZ=UTC stat --printf='size: %s\nmode: %a\nmtime: %Y\nbtime: %W\nowner: %u %U\ngroup: %g %G\n' "$path"
+	fi \
+	| sed -e '/^btime: 0$/d'
+
+	(( $? == 0 )) || exit 1
+}
+
+add_tags() {
+	local sha=$1
+	local tag
+	for tag in "${tags[@]}"
+	do
+		$here/stcas add-tag "$tag" "$sha"
+	done
+}
+
+add_id() {
+	local sha=$1
+	local id=$2
+
+	local mtime
+
+	if (( ${#paths[@]} > 1 )) || [[ -d ${paths[0]} ]]
+	then
+		mtime=$(TZ=UTC date +%s)
+	else
+		mtime=$(TZ=UTC stat -c %Y "${paths[0]}")
+	fi
+
+	$here/stcas set-id "$id" "$mtime" "$sha"
+}
+
+main "$@"

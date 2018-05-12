@@ -1,0 +1,177 @@
+#!/bin/bash
+
+re_sha='^sha[0-9]*:[0-9a-f]*$'
+re_no='^[0-9]*$'
+self=$BASH_SOURCE
+db=$HOME/backups
+algo=1
+
+main() {
+	case "$1" in
+	read)
+		type=$2
+		 sha=$3
+		   [[ $type == blob || $type == object ]] \
+		&& [[ $sha =~ $re_sha ]]                  \
+		&& return_path "$type" "$sha"             \
+		&& cat "$return"
+		;;
+	write)
+		type=$2
+		assert_dir "$db"
+		read -r tmpf < <( mktemp -p "$db" )
+		[[ $tmpf ]] || exit 1
+
+		trap "rm '$tmpf' 2>/dev/null; exit 1" INT HUP QUIT TERM EXIT
+
+		   cat > "$tmpf"                                         \
+		&& read -r sha _ < <(shasum -a "$algo" --binary "$tmpf") \
+		&& [[ $sha ]]                                            \
+		&& [[ $type == blob || $type == object ]]                \
+		&& return_path "$type" "sha$algo:$sha"                   \
+		&& {
+			     same_content "$tmpf" "$return" \
+			|| insert_content "$tmpf" "$return"
+		}                                                        \
+		&& trap - INT HUP QUIT TERM EXIT                         \
+		&& echo "sha$algo:$sha"
+		;;
+	list-tags|list-ids)
+		type=${1#list-}
+		find "$db/${type%s}" -mindepth 2 -maxdepth 2 -type d -printf '%f\n' \
+		| base64 -d
+		;;
+	add-tag)
+		tag=$2
+		sha=$3
+		   [[ $tag ]]                    \
+		&& [[ $sha =~ $re_sha ]]         \
+		&& return_tag_path "$tag" "$sha" \
+		&& assert_dir "${return%/*}"     \
+		&& touch "$return"
+		;;
+	set-id)
+		  id=$2
+		time=$3
+		 sha=$4
+		   [[ $id ]]                    \
+		&& [[ $time =~ $re_no ]]        \
+		&& (( $time > 999 ))            \
+		&& [[ $sha =~ $re_sha ]]        \
+		&& return_id_path "$id" "$time" \
+		&& {
+			[[ -e "$return" ]]                  \
+			|| same_id_content "$id"     "$sha" \
+			|| set_id          "$return" "$sha"
+		}
+		;;
+	id-history)
+		return_id_path "$2" \
+		&& find "$return" -mindepth 2 -maxdepth 2 -type f \
+		| awk ' BEGIN { n = 1 }
+			{ k = split($1, p, "/"); names[p[k]] = $1; ind[n++] = p[k] }
+			END {
+				asort(ind)
+				for (n--; n > 0; n--) {
+					getline sha < names[ind[n]]
+					print ind[n] " " sha
+				}
+			}'
+		;;
+	*)
+		exit 1
+		;;
+	esac
+}
+
+return_path() {
+	local objtype=$1
+	local     sha=$2
+
+	local  shaval=${sha#*:}
+	local shatype=${sha%:*}
+
+	return="$db/$objtype/$shatype/${shaval:0:3}/${shaval:3:3}/$shaval"
+}
+
+return_tag_path() {
+	local tag
+	read -r tag < <( base64 <<<"$1" )
+	local sha=$2
+
+	return="$db/tag/${tag:0:4}/$tag/$sha"
+}
+
+return_id_path() {
+	local id
+	read -r id < <( base64 <<<"$1" )
+
+	return="$db/id/${id:0:4}/$id"
+
+	local time=$2
+	if [[ $time ]]
+	then
+		return="$return/${time: -4}/$time"
+	fi
+}
+
+assert_dir() {
+	[[ -d $1 ]] || mkdir -p "$1" || exit 1
+}
+
+same_content() {
+	local src=$1
+	local dst=$2
+
+	[[ ! -e $dst ]] && return 1
+
+	cmp --quiet "$src" "$dst" || {
+		echo "SHA$algo collision" >&2
+		exit
+	}
+
+	rm "$src"
+}
+
+insert_content() {
+	local src=$1
+	local dst=$2
+
+	   sync       "$src"             \
+	&& assert_dir        "${dst%/*}" \
+	&& mv         "$src"  "$dst" 
+}
+
+same_id_content() {
+	local id
+	read -r id       < <( base64 <<<"$1" )
+
+	local sha=$2
+	read -r last_sha < <( last_id "$id" )
+	[[ $last_sha == $sha ]]
+}
+
+last_id() {
+	local dir="$db/id/$1"
+	[[ -d $dir ]] || return
+
+	  find "$dir" -type f -printf '%f %p\n' \
+	| sort -nr -k1,1                        \
+	| tail -1                               \
+	| awk '{print $2}'                      \
+	| xargs cat
+}
+
+set_id() {
+	assert_dir             "${1%/*}"
+	local tmpf=$(mktemp -p "${1%/*}")
+
+	trap "rm '$tmpf' 2>/dev/null; exit 1" INT HUP QUIT TERM EXIT
+
+	   printf '%s\n' "$2" > "$tmpf" \
+	&& sync "$tmpf"                 \
+	&& mv   "$tmpf" "$1"            \
+	&& trap - INT HUP QUIT TERM EXIT
+}
+
+main "$@"

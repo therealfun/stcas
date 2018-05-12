@@ -1,0 +1,11 @@
+./backup -id xxx -tag t1 $PWD && echo PASSED
+touch stcas
+./backup -id xxx -tag t2 $PWD && echo PASSED
+./stcas list-tags             && echo PASSED
+./stcas list-ids              && echo PASSED
+./stcas id-history xxx        && echo PASSED
+diff -u <(./stcas read object $(./stcas id-history xxx | tail -1 | awk '{print $2}')) \
+	<(./stcas read object $(./stcas id-history xxx | head -1 | awk '{print $2}'))
+./restore -id xxx /tmp/restore-latest && echo PASSED
+./restore -sha $(./stcas id-history xxx | tail -1 | awk '{print $2}') /tmp/restore-oldest && echo PASSED
+diff -ur /tmp/restore-oldest /tmp/restore-latest
