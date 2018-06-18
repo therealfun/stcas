@@ -204,9 +204,9 @@ simple programs, let alone for the simplest ones.
 ## Improvement ideas
 
 - variable sized blobs based on file size
-- compression for blobs
-- pick the SHA algoritm based on the blob size (eg. 0-4KB -> sha1, 4-64K sha224, >64KB sha384)
 - content-based slicing using a rolling hash (https://github.com/namelessjon/librabin)
+- pick the SHA algoritm based on the blob size (eg. 0-4KB -> sha1, 4-64K sha224, >64KB sha384)
+- compression for blobs (only after variable size blobs)
 - search scripts
 - mount the storage with libfuse
 - indexers (add tags to objects based on content)
