@@ -14,7 +14,7 @@ main() {
 	if [[ $# = 1 ]] && [[ $1 = "-h" || $1 = "--help" ]]; then
 		cat <<-EOF
 			Usage:
-			  backup -id string [-tag string]... [dir|file]...
+			  ./stcas-backup -id string [-tag string]... [dir|file]...
 		EOF
 		exit 0
 	fi

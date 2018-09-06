@@ -34,8 +34,8 @@ main() {
 	-h|--help)
 		cat <<-EOF
 			Usage:
-			  restore -id  name dest_dir [time]
-			  restore -sha sha  dest_dir
+			  ./stcas-restore -id  name dest_dir [time]
+			  ./stcas-restore -sha sha  dest_dir
 		EOF
 		exit 0
 		;;

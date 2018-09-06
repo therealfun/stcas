@@ -7,8 +7,8 @@ it is **the simplest** that I know.
 The set has 3 tools:
 
 - stcas - the main program
-- backup - backup files/directories
-- restore - restore backups
+- stcas-backup - backup files/directories
+- stcas-restore - restore backups
  
 ## Storage format
 
@@ -49,12 +49,12 @@ part: sha
 ...
 ```
 
-Let's save the `restore` program:
+Let's save the `./stcas-restore` program:
 
 ```
 {
   echo "type: data"
-  split -b 4096 --filter="./stcas write blob" < restore | sed -e 's/^/part: /'
+  split -b 4096 --filter="./stcas write blob" < stcas-restore | sed -e 's/^/part: /'
 } | ./stcas write object
 ```
 
@@ -78,10 +78,10 @@ part: sha1:02d121957cb03991fe6960ea843ff93a33a9024c
 part: sha1:6e1cab7e8e4abd51e6915045c704f3c21ca2616e
 ```
 
-It is easier to use the `backup` program:
+It is easier to use the `stcas-backup` program:
 
 ```
-./backup -id test restore
+./stcas-backup -id test stcas-restore
 ```
 
 The object will be saved as:
@@ -118,13 +118,13 @@ You can attach any number of tags to any object:
 ### IDs
 
 An ID is a name you give to an object (file/directory) to access it even
-if it changes. For example, we save two copies of the `restore` program:
+if it changes. For example, we save two copies of the `stcas-restore` program:
 
 
 ```
-./backup -id x restore
-echo >> restore
-./backup -id x restore
+./stcas-backup -id x stcas-restore
+echo >> stcas-restore
+./stcas-backup -id x stcas-restore
 ```
 
 We can list the current IDs:
@@ -159,34 +159,34 @@ You can have more than one ID pointing to an object:
 1526027491 sha1:a8b1276239012784a1536b193b81d363dccb29cc
 ```
 
-## Backup and restore
+## stcas-backup and stcas-restore
 
-These two programs make it easier to handle backups.
+These two programs are examples of how to handle backups.
 
 Example:
 
 ```
-./backup -id test -tag this -tag that dir1 dir2 file1
-./restore -id test /tmp/restore1
-./restore -id test /tmp/restore2 "2 days ago"
-./restore -sha sha1:a8b1276239012784a1536b193b81d363dccb29cc /tmp/restore3
+./stcas-backup -id test -tag this -tag that dir1 dir2 file1
+./stcas-restore -id test /tmp/restore1
+./stcas-restore -id test /tmp/restore2 "2 days ago"
+./stcas-restore -sha sha1:a8b1276239012784a1536b193b81d363dccb29cc /tmp/restore3
 ```
 
-The `backup` program saves symlinks, directories and files. The files
+The `./stcas-backup` program saves symlinks, directories and files. The files
 are split in 4KB blobs. No file bigger than 12MB will be saved. You you
-can change these limits by editing the `backup` file. You need to use
+can change these limits by editing the `stcas-backup` file. You need to use
 a different ID for any type of backup, otherwise it will hard finding
 that backup. For example, you should use either:
 
 ```
-./backup -id all ~/Documents ~/Mail
+./stcas-backup -id all ~/Documents ~/Mail
 ```
 
 or
 
 ```
-./backup -id doc  ~/Documents
-./backup -id mail ~/Mail
+./stcas-backup -id doc  ~/Documents
+./stcas-backup -id mail ~/Mail
 ```
 
 You can restore objects (files/directories) by using the SHA of any
@@ -211,4 +211,4 @@ simple programs, let alone for the simplest ones.
 - mount the storage with libfuse
 - indexers (add tags to objects based on content)
 - clean-up scripts
-- use rdup instead of backup/restore?
+- use rdup instead of stcas-backup/stcas-restore?
