@@ -23,7 +23,7 @@ main() {
 	do
 		case $1 in
 			-id)      id=$2      ; shift 2 ;;
-			-tag)  tags+=( "$2" ); shift 2 ;; 
+			-tag)  tags+=( "$2" ); shift 2 ;;
 			*)    paths+=( "$1" ); shift 1 ;;
 		esac
 	done
