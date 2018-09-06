@@ -78,6 +78,26 @@ main() {
 				}
 			}'
 		;;
+	-h|--help|help)
+		cat <<-EOF
+			Usage:
+			  stcas read blob|object <sha>
+			      print the blob or object identified by <sha> to stdout
+			  stcas write blob|object
+			      store the blob or object from stdin and print its sha to stdout
+			  stcas add-tag <tag> <sha>
+			      add the <tag> to an object identified by <sha>
+			  stcas list-tags
+			      list all tags
+			  stcas set-id <id> <time> <sha>
+			      set the version (in time) of an <id> to an object identified by <sha>
+			  stcas id-history <id>
+			      print all versions (in time) of an <id>
+			  stcas list-ids
+			      list all IDs
+		EOF
+		exit 0
+		;;
 	*)
 		exit 1
 		;;
