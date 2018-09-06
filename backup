@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Usage:
-#	./backup -id string [-tag string]... [dir|file]...
-
 here=${BASH_SOURCE%/*}
 block=4096
 maxsize=$(( 12 * 1024 * 1024 ))
@@ -13,6 +10,14 @@ main() {
 	tags=()
 	local id=
 	local paths=()
+
+	if [[ $# = 1 ]] && [[ $1 = "-h" || $1 = "--help" ]]; then
+		cat <<-EOF
+			Usage:
+			  backup -id string [-tag string]... [dir|file]...
+		EOF
+		exit 0
+	fi
 
 	while (( $# > 1 ))
 	do

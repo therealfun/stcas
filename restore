@@ -1,9 +1,5 @@
 #!/bin/bash
 
-# Usage:
-#	./restore -id  name dest_dir [time]
-#	./restore -sha sha  dest_dir
-
 here=${BASH_SOURCE%/*}
 re_no='^[0-9]*$'
 
@@ -34,6 +30,14 @@ main() {
 		assert_dir "$dest"
 
 		restore_object "$sha" "$dest"
+		;;
+	-h|--help)
+		cat <<-EOF
+			Usage:
+			  restore -id  name dest_dir [time]
+			  restore -sha sha  dest_dir
+		EOF
+		exit 0
 		;;
 	*)
 		exit 1
