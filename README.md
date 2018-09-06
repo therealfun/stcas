@@ -1,6 +1,6 @@
 # stcas - Simplest Content-Addressable Storage
 
-stcas is more than a simple [content-addressablestorage](https://wikipedia.org/wiki/Content-addressable_storage)
+stcas is more than a simple [content-addressable-storage](https://wikipedia.org/wiki/Content-addressable_storage)
 set of tools to keep space-eficient backups using [data deduplication](https://en.wikipedia.org/wiki/Data_deduplication),
 it is **the simplest** that I know.
 
